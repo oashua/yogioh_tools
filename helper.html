@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>卡片区域拖拽演示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f7f7f7;
+        }
+
+        .input-area {
+            margin: 20px;
+        }
+
+        .input-area input {
+            width: 300px;
+            margin-right: 10px;
+        }
+
+        .zones {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+        }
+
+        .zone {
+            background: #fff;
+            border: 2px solid #aaa;
+            border-radius: 8px;
+            width: 220px;
+            min-height: 180px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .zone-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .number {
+            display: inline-block;
+            width: 36px;
+            height: 36px;
+            line-height: 36px;
+            margin: 6px;
+            border-radius: 50%;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .number.black {
+            background: #222;
+            color: #fff;
+        }
+
+        .number.purple {
+            background: #a259e6;
+            color: #fff;
+        }
+
+        .zone.drag-over {
+            border-color: #4CAF50;
+            background: #e8ffe8;
+        }
+
+        .result-area {
+            margin: 24px 20px 0 20px;
+            padding: 12px;
+            background: #fff;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+
+        .result-area ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        #comboTable td,
+        #comboTable th {
+            transition: background 0.2s;
+        }
+
+        #comboTable .highlight-row {
+            background: #ffeeba !important;
+        }
+
+        #comboTable .highlight-col {
+            background: #bee5eb !important;
+        }
+
+        #comboTable .highlight-cell {
+            background: #f5c6cb !important;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>连栗炮助手</h1>
+    <div class="input-area">
+        <label>超量（黑色）数字：<input id="blackInput" placeholder="如 3 3 4 4 5 5" value="3 3 4 4 5 5 "></label>
+        <label>融合（紫色）数字：<input id="purpleInput" placeholder="如 1 2 3 4 5 6 7" value="1 2 3 4 5 6 7"></label>
+        <button onclick="initZones()">初始化</button>
+        <br><br>
+        <label>射程：<input id="rangeInput" style="width:80px;" placeholder="如 10" value=8
+                oninput="showCombinations()"></label>
+        <!-- <button onclick="showCombinations()">显示组合</button> -->
+    </div>
+    <div class="zones">
+        <div class="zone" id="extra" ondragover="allowDrop(event)" ondrop="drop(event)" ondragleave="leave(event)">
+            <div class="zone-title">额外牌组区</div>
+        </div>
+        <!-- <div class="zone" id="grave" ondragover="allowDrop(event)" ondrop="drop(event)" ondragleave="leave(event)">
+            <div class="zone-title">墓地区</div>
+        </div> -->
+        <div class="zone" id="banish" ondragover="allowDrop(event)" ondrop="drop(event)" ondragleave="leave(event)">
+            <div class="zone-title">除外区</div>
+        </div>
+    </div>
+    <div class="result-area" id="resultArea" style="display:none;">
+        <b>满足条件的炮弹组合：</b>
+        <ul id="resultList"></ul>
+    </div>
+    <div class="result-area" id="barrelArea" style="display:none;">
+        <b>炮膛区：</b>
+        <div id="barrelCombo"></div>
+        <label>选择目标：
+            <select id="targetSelect"></select>
+        </label>
+        <button onclick="fire()">开炮</button>
+    </div>
+    <script>
+        function createNumber(num, type) {
+            const div = document.createElement('div');
+            div.className = 'number ' + (type === 'black' ? 'black' : 'purple');
+            div.textContent = num;
+            div.draggable = true;
+            div.dataset.type = type;
+            div.dataset.num = num;
+            div.addEventListener('dragstart', function (e) {
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    num: num,
+                    type: type,
+                    from: div.parentElement.id
+                }));
+            });
+            return div;
+        }
+
+        function initZones() {
+            ['extra', 'banish'].forEach(id => {
+                const zone = document.getElementById(id);
+                zone.innerHTML = `<div class="zone-title">${zone.querySelector('.zone-title').textContent}</div>`;
+            });
+            const blacks = document.getElementById('blackInput').value.trim().split(/\s+/).filter(Boolean);
+            const purples = document.getElementById('purpleInput').value.trim().split(/\s+/).filter(Boolean);
+            const extra = document.getElementById('extra');
+            blacks.forEach(num => extra.appendChild(createNumber(num, 'black')));
+            purples.forEach(num => extra.appendChild(createNumber(num, 'purple')));
+            sortZone(extra);
+            document.getElementById('resultArea').style.display = 'none';
+            showCombinations();
+            drawTable();
+        }
+
+        function allowDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('drag-over');
+        }
+        function leave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+        function drop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            const fromZone = document.getElementById(data.from);
+            const toZone = e.currentTarget;
+            const moving = Array.from(fromZone.querySelectorAll('.number')).find(
+                el => el.dataset.num === data.num && el.dataset.type === data.type
+            );
+            if (moving && toZone !== fromZone) {
+                toZone.appendChild(moving);
+                sortZone(toZone);
+                showCombinations();
+            }
+        }
+
+        function sortZone(zone) {
+            const numbers = Array.from(zone.querySelectorAll('.number'));
+            numbers.sort((a, b) => {
+                if (a.dataset.type !== b.dataset.type) {
+                    return a.dataset.type === 'black' ? -1 : 1;
+                }
+                return Number(a.dataset.num) - Number(b.dataset.num);
+            });
+            numbers.forEach(numDiv => zone.appendChild(numDiv));
+        }
+
+        function showCombinations() {
+            const range = Number(document.getElementById('rangeInput').value.trim());
+            if (isNaN(range)) {
+                document.getElementById('resultArea').style.display = 'none';
+                return;
+            }
+            const extra = document.getElementById('extra');
+            const blacks = Array.from(extra.querySelectorAll('.number.black')).map(el => Number(el.dataset.num));
+            const purples = Array.from(extra.querySelectorAll('.number.purple')).map(el => Number(el.dataset.num));
+            const banish = document.getElementById('banish');
+            const banishBlacks = Array.from(banish.querySelectorAll('.number.black')).map(el => Number(el.dataset.num));
+            const banishPurples = Array.from(banish.querySelectorAll('.number.purple')).map(el => Number(el.dataset.num));
+            const resultList = document.getElementById('resultList');
+            resultList.innerHTML = '';
+            let found = false;
+            const uniqueBlacks = Array.from(new Set(blacks));
+            uniqueBlacks.forEach(x => {
+                if (blacks.filter(xx => xx === x).length >= 2) {
+                    purples.forEach(y => {
+                        if (2 * x + y === range) {
+                            // 计算可打击目标
+                            const targets = [];
+                            if (x + y <= 12)
+                                targets.push(x + y);
+                            banishBlacks.forEach(bx => {
+                                if (bx + y <= 12)
+                                    targets.push(bx + y);
+                                banishPurples.forEach(by => {
+                                    if (bx + by <= 12)
+                                        targets.push(bx + by);
+                                    if (x + by <= 12)
+                                        targets.push(x + by);
+                                });
+                            });
+                            // 去重并排序
+                            const uniqueTargets = Array.from(new Set(targets)).sort((a, b) => a - b);
+                            const btn = document.createElement('button');
+
+                            if (uniqueTargets.length > 0) {
+                                btn.innerHTML = `黑色${x}、黑色${x}、紫色${y} 可打击目标值：` + uniqueTargets.join('、');
+                            } else {
+                                btn.innerHTML = `黑色${x}、黑色${x}、紫色${y} 可打击目标值：无`;
+                            }
+                            btn.onclick = function () {
+                                showBarrelCombo(x, y, uniqueTargets);
+                            };
+                            const li = document.createElement('li');
+                            li.appendChild(btn);
+                            resultList.appendChild(li);
+                            found = true;
+                        }
+                    });
+                }
+            });
+            document.getElementById('resultArea').style.display = 'block';
+            document.getElementById('barrelArea').style.display = 'none';
+            document.getElementById('resultArea').style.display = 'block';
+            if (!found) {
+                const li = document.createElement('li');
+                li.textContent = '无满足条件的组合';
+                resultList.appendChild(li);
+            }
+        }
+        function showBarrelCombo(x, y, targets) {
+            currentCombo = { x: x, y: y };
+            // 显示炮膛区
+            document.getElementById('barrelArea').style.display = 'block';
+            // 显示组合
+            const barrelCombo = document.getElementById('barrelCombo');
+            barrelCombo.innerHTML = '';
+            barrelCombo.appendChild(makeNumberDiv(x, 'black'));
+            barrelCombo.appendChild(makeNumberDiv(x, 'black'));
+            barrelCombo.appendChild(makeNumberDiv(y, 'purple'));
+            // 填充目标选择
+            const targetSelect = document.getElementById('targetSelect');
+            targetSelect.innerHTML = '';
+            if (targets.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '无可打击目标';
+                targetSelect.appendChild(opt);
+            } else {
+                targets.forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val;
+                    opt.textContent = val;
+                    targetSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function makeNumberDiv(num, type) {
+            const div = document.createElement('div');
+            div.className = 'number ' + (type === 'black' ? 'black' : 'purple');
+            div.textContent = num;
+            div.style.display = 'inline-block';
+            div.style.marginRight = '6px';
+            return div;
+        }
+
+        function fire() {
+            if (!currentCombo) return;
+            const { x, y } = currentCombo;
+            const target = document.getElementById('targetSelect').value;
+            // 移动组合的三个数字到除外区
+            moveNumberFromZoneToZone('extra', 'banish', x, 'black');
+            moveNumberFromZoneToZone('extra', 'banish', x, 'black');
+            moveNumberFromZoneToZone('extra', 'banish', y, 'purple');
+            sortZone(document.getElementById('banish'));
+            sortZone(document.getElementById('extra'));
+            // 如果目标非空，找除外区中满足x+y=target的黑色和紫色，移回额外区
+            if (target !== '') {
+                const banish = document.getElementById('banish');
+                const blacks = Array.from(banish.querySelectorAll('.number.black'));
+                const purples = Array.from(banish.querySelectorAll('.number.purple'));
+                let found = false;
+                for (let i = 0; i < blacks.length; i++) {
+                    for (let j = 0; j < purples.length; j++) {
+                        const bx = Number(blacks[i].dataset.num);
+                        const py = Number(purples[j].dataset.num);
+                        if (bx + py === Number(target)) {
+                            // 移回额外区
+                            document.getElementById('extra').appendChild(blacks[i]);
+                            document.getElementById('extra').appendChild(purples[j]);
+                            sortZone(document.getElementById('banish'));
+                            sortZone(document.getElementById('extra'));
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                }
+            }
+            // 重算组合
+            showCombinations();
+            // 清空炮膛区
+            document.getElementById('barrelArea').style.display = 'none';
+            currentCombo = null;
+        }
+
+        function moveNumberFromZoneToZone(fromId, toId, num, type) {
+            const fromZone = document.getElementById(fromId);
+            const toZone = document.getElementById(toId);
+            // 找到第一个匹配的数字元素
+            const el = Array.from(fromZone.querySelectorAll('.number.' + type)).find(e => Number(e.dataset.num) === Number(num));
+            if (el) toZone.appendChild(el);
+        }
+        function drawTable() {
+            // 获取当前额外区所有黑色和紫色数字
+            const extra = document.getElementById('extra');
+            const blacks = Array.from(extra.querySelectorAll('.number.black')).map(el => Number(el.dataset.num));
+            const purples = Array.from(extra.querySelectorAll('.number.purple')).map(el => Number(el.dataset.num));
+            if (blacks.length === 0 || purples.length === 0) {
+                alert('请确保额外区有黑色和紫色数字');
+                return;
+            }
+            // 计算所有可能的x+y和2x+y
+            let minTarget = Infinity, maxTarget = -Infinity, minRange = Infinity, maxRange = -Infinity;
+            blacks.forEach(x => {
+                purples.forEach(y => {
+                    const t = x + y;
+                    const r = 2 * x + y;
+                    if (t < minTarget) minTarget = t;
+                    if (t > maxTarget) maxTarget = t;
+                    if (r < minRange) minRange = r;
+                    if (r > maxRange) maxRange = r;
+                });
+            });
+
+            // 先创建空表格的二维数组
+            const rows = maxRange - minRange + 1;
+            const cols = maxTarget - minTarget + 1;
+            const tableData = Array.from({ length: rows }, () => Array(cols).fill(''));
+
+            // 填充内容
+            const uniqueBlacks = Array.from(new Set(blacks));
+            uniqueBlacks.forEach(x => {
+                if (blacks.filter(xx => xx === x).length >= 2) {
+                    purples.forEach(y => {
+                        const t = x + y;
+                        const r = 2 * x + y;
+                        // 检查是否在表格范围内
+                        if (r >= minRange && r <= maxRange && t >= minTarget && t <= maxTarget) {
+                            tableData[r - minRange][t - minTarget] = `黑${x},黑${x},紫${y}`;
+                        }
+                    });
+                }
+            });
+
+            // 生成HTML
+            // let html = '<table border="1" style="border-collapse:collapse;text-align:center;"><tr><th>射程\\目标</th>';
+            let html = '<table id="comboTable" border="1" style="border-collapse:collapse;text-align:center;"><tr><th>射程\\目标</th>';
+            for (let target = minTarget; target <= maxTarget; target++) {
+                html += `<th>${target}</th>`;
+            }
+            html += '</tr>';
+            for (let i = 0; i < rows; i++) {
+                html += `<tr><th>${i + minRange}</th>`;
+                for (let j = 0; j < cols; j++) {
+                    html += `<td data-row="${i}" data-col="${j}">${tableData[i][j]}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</table>';
+
+            // 显示表格
+            let tableDiv = document.getElementById('tableDiv');
+            if (!tableDiv) {
+                tableDiv = document.createElement('div');
+                tableDiv.id = 'tableDiv';
+                tableDiv.style.margin = '24px 20px 0 20px';
+                document.body.appendChild(tableDiv);
+            }
+            tableDiv.innerHTML = `<b>射程-目标对应炮弹组合表：</b><br>${html}`;
+            setTimeout(() => {
+                const table = document.getElementById('comboTable');
+                if (!table) return;
+                // 悬浮高亮
+                table.addEventListener('mouseover', function (e) {
+                    if (e.target.tagName === 'TD') {
+                        const row = e.target.getAttribute('data-row');
+                        const col = e.target.getAttribute('data-col');
+                        Array.from(table.querySelectorAll(`td[data-row="${row}"]`)).forEach(td => td.classList.add('highlight-row'));
+                        Array.from(table.querySelectorAll(`td[data-col="${col}"]`)).forEach(td => td.classList.add('highlight-col'));
+                        e.target.classList.add('highlight-cell');
+                    }
+                });
+                table.addEventListener('mouseout', function (e) {
+                    Array.from(table.querySelectorAll('.highlight-row,.highlight-col,.highlight-cell')).forEach(td => td.classList.remove('highlight-row', 'highlight-col', 'highlight-cell'));
+                });
+                // 点击高亮（保持高亮，点击其它单元格时切换）
+                table.addEventListener('click', function (e) {
+                    Array.from(table.querySelectorAll('.highlight-row,.highlight-col,.highlight-cell')).forEach(td => td.classList.remove('highlight-row', 'highlight-col', 'highlight-cell'));
+                    if (e.target.tagName === 'TD') {
+                        const row = e.target.getAttribute('data-row');
+                        const col = e.target.getAttribute('data-col');
+                        Array.from(table.querySelectorAll(`td[data-row="${row}"]`)).forEach(td => td.classList.add('highlight-row'));
+                        Array.from(table.querySelectorAll(`td[data-col="${col}"]`)).forEach(td => td.classList.add('highlight-col'));
+                        e.target.classList.add('highlight-cell');
+                    }
+                });
+            }, 0);
+        }
+        initZones();
+    </script>
+</body>
+
+</html>
