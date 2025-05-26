@@ -88,6 +88,11 @@
             transition: background 0.2s;
         }
 
+        .highlight-match {
+            background: #ffecb3 !important;
+            font-weight: bold;
+        }
+
         #comboTable .highlight-row {
             background: #ffeeba !important;
         }
@@ -151,6 +156,22 @@
                     from: div.parentElement.id
                 }));
             });
+            div.addEventListener('click', function () {
+                const parentId = div.parentElement.id;
+                let targetZone;
+                if (parentId === 'extra') {
+                    targetZone = document.getElementById('banish');
+                } else if (parentId === 'banish') {
+                    targetZone = document.getElementById('extra');
+                } else {
+                    return;
+                }
+                targetZone.appendChild(div);
+                sortZone(targetZone);
+                sortZone(div.parentElement);
+                showCombinations();
+                // drawTable();
+            });
             return div;
         }
 
@@ -167,7 +188,7 @@
             sortZone(extra);
             document.getElementById('resultArea').style.display = 'none';
             showCombinations();
-            drawTable();
+            // drawTable();
         }
 
         function allowDrop(e) {
@@ -266,6 +287,7 @@
                 li.textContent = '无满足条件的组合';
                 resultList.appendChild(li);
             }
+            drawTable();
         }
         function showBarrelCombo(x, y, targets) {
             currentCombo = { x: x, y: y };
@@ -392,7 +414,7 @@
                     });
                 }
             });
-
+            const range = Number(document.getElementById('rangeInput').value.trim());
             // 生成HTML
             // let html = '<table border="1" style="border-collapse:collapse;text-align:center;"><tr><th>射程\\目标</th>';
             let html = '<table id="comboTable" border="1" style="border-collapse:collapse;text-align:center;"><tr><th>射程\\目标</th>';
@@ -403,7 +425,11 @@
             for (let i = 0; i < rows; i++) {
                 html += `<tr><th>${i + minRange}</th>`;
                 for (let j = 0; j < cols; j++) {
-                    html += `<td data-row="${i}" data-col="${j}">${tableData[i][j]}</td>`;
+                    let highlight = '';
+                    if (i + minRange === range && tableData[i][j]) {
+                        highlight = ' highlight-match'; // 高亮当前射程
+                    }
+                    html += `<td data-row="${i}" data-col="${j}" class="${highlight.trim()}">${tableData[i][j]}</td>`;
                 }
                 html += '</tr>';
             }
