@@ -84,7 +84,8 @@
 
 <body>
     <div class="container">
-        <h1>Automatically Retrieve the Card Key for the YGO Deck</h1>
+        <h1>卡组↔️card key</h1>
+        <h2>卡组页面转card key</h2>
         <textarea id="htmlInput" placeholder="Paste your HTML code here..."></textarea>
         <button onclick="extractTitles()">Get card name&card key</button>
 
@@ -187,6 +188,117 @@
             }
         }
     </script>
+
+    <!-- ...existing code... -->
+
+    <div class="container" style="margin-top:40px;">
+        <h2>批量 card key 转卡名</h2>
+        <div style="display:flex;gap:20px;">
+            <textarea id="keyInput" placeholder="每行一个 card key"></textarea>
+            <textarea id="nameOutput" placeholder="卡名输出" readonly></textarea>
+        </div>
+        <div style="margin-top:10px;">
+            <button onclick="convertKeysToNames()">转换</button>
+            <button onclick="undoConvert()">撤销</button>
+            <button onclick="copyIds()">复制ID</button>
+        </div>
+    </div>
+    <script>
+        let lastKeyInput = '';
+        let lastNameOutput = '';
+        async function convertKeysToNames() {
+            const keyInput = document.getElementById('keyInput');
+            const nameOutput = document.getElementById('nameOutput');
+            lastKeyInput = keyInput.value;
+            lastNameOutput = nameOutput.value;
+            let keys = keyInput.value.split('\n').map(k => k.trim()).filter(k => k);
+            let names = [];
+            for (let i = 0; i < keys.length; i++) {
+                try {
+                    const res = await fetch(`https://ygocdb.com/api/v0/?search=${encodeURIComponent(keys[i])}`);
+                    const json = await res.json();
+                    if (json.result && Array.isArray(json.result) && json.result.length > 0) {
+                        names.push(json.result[0].cn_name);
+                    } else {
+                        names.push('未找到');
+                    }
+                } catch {
+                    names.push('请求失败');
+                }
+            }
+            nameOutput.value = names.join('\n');
+
+            // 按左侧id排序
+            const combined = keys.map((key, idx) => ({ key, name: names[idx] }));
+            combined.sort((a, b) => {
+                // 按数字排序，如果不是数字则按字符串排序
+                const aNum = Number(a.key), bNum = Number(b.key);
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return aNum - bNum;
+                }
+                return a.key.localeCompare(b.key, 'zh-Hans-CN');
+            });
+            keys = combined.map(item => item.key);
+            names = combined.map(item => item.name);
+
+            keyInput.value = keys.join('\n');
+            nameOutput.value = names.join('\n');
+
+            // 点击左侧key或右侧name删除对应项
+            keyInput.onclick = function (e) {
+                const pos = keyInput.selectionStart;
+                const lines = keyInput.value.substr(0, pos).split('\n');
+                const idx = lines.length - 1;
+                if (keys[idx]) {
+                    keys.splice(idx, 1);
+                    names.splice(idx, 1);
+                    keyInput.value = keys.join('\n');
+                    nameOutput.value = names.join('\n');
+                }
+            };
+            nameOutput.onclick = function (e) {
+                const pos = nameOutput.selectionStart;
+                const lines = nameOutput.value.substr(0, pos).split('\n');
+                const idx = lines.length - 1;
+                if (names[idx]) {
+                    keys.splice(idx, 1);
+                    names.splice(idx, 1);
+                    keyInput.value = keys.join('\n');
+                    nameOutput.value = names.join('\n');
+                }
+            };
+        }
+        function undoConvert() {
+            const keyInput = document.getElementById('keyInput');
+            const nameOutput = document.getElementById('nameOutput');
+            keyInput.value = lastKeyInput;
+            nameOutput.value = lastNameOutput;
+        }
+
+        function copyIds() {
+            const keyInput = document.getElementById('keyInput');
+            if (keyInput.value.trim()) {
+                navigator.clipboard.writeText(keyInput.value).then(() => {
+                    const notice = document.createElement('div');
+                    notice.textContent = '所有ID已复制到剪切板！';
+                    notice.style.position = 'fixed';
+                    notice.style.bottom = '30px';
+                    notice.style.right = '30px';
+                    notice.style.background = '#4CAF50';
+                    notice.style.color = 'white';
+                    notice.style.padding = '12px 24px';
+                    notice.style.borderRadius = '6px';
+                    notice.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                    notice.style.zIndex = 9999;
+                    document.body.appendChild(notice);
+                    setTimeout(() => {
+                        notice.remove();
+                    }, 2000);
+                });
+            }
+        }
+    </script>
+    <!-- ...existing code... -->
 </body>
 
 </html>
